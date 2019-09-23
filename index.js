@@ -8,7 +8,7 @@ const server = http.createServer(app);
 const WebSocket = require('ws');
 const wss = new WebSocket.Server({noServer: true});
 
-let roomInfo = [];
+let broadcaster;
 let streamList = [];
 
 wss.getUniqueID = function () {
@@ -24,28 +24,66 @@ wss.on('connection', (ws) => {
     console.log('some one join');
     ws.on('message', function incoming(data) {
         data = JSON.parse(data);
-        if( data.type === 'init-broadcast') {
-            streamList.push(data);
-        }
-        // console.log(data, 'data123');
         if (!ws.id) {
             ws.id = data.id;
         }
-        wss.clients.forEach((client) => {
-            if(client.id !== data.id) {
-                console.log('senddata', client.id);
-                client.send(JSON.stringify(data));
-            }
-        });
-    });
+        switch (data.type) {
+            case 'init-broadcast':
+                broadcaster = data.id;
+                streamList.push(data);
+                wss.clients.forEach(client => {
+                    if (client.id === broadcaster) {
+                        client.send(JSON.stringify(data));
+                    }
+                });
+                break;
+            case 'request-offer':
 
+                wss.clients.forEach(client => {
+                    console.log(broadcaster, client.id, 'id check');
+                    if (client.id === broadcaster) {
+                        console.log('send');
+                        client.send(JSON.stringify(data));
+                    }
+                });
+                break;
+            case 'send-offer':
+                wss.clients.forEach(client => {
+                    if (client.id !== broadcaster) {
+                        client.send(JSON.stringify(data));
+                    }
+                });
+                break;
+            case 'send-answer':
+                wss.clients.forEach(client => {
+                    if (client.id === broadcaster) {
+                        client.send(JSON.stringify(data));
+                    }
+                });
+                break;
+            case 'icecandidate-state':
+                wss.clients.forEach(client => {
+                    if (client.id !== data.id) {
+                        if (!!data.data) {
+                            client.send(JSON.stringify(data));
+                        }
+                    }
+                });
+                break;
+        }
+    });
 });
+
 server.on('upgrade', function upgrade(request, socket, head) {
     const pathname = url.parse(request.url).pathname;
     if(pathname === '/temp') {
         wss.handleUpgrade(request, socket, head, function done(ws){
             wss.emit('connection',ws, request)
         });
+    } else if(pathname === '/stream-list') {
+        app.get('/stream-list', (request, response) => {
+            response.send(JSON.stringify(streamList));
+        })
     }
 });
 
